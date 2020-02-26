@@ -1,0 +1,11 @@
+{application,mssql_ecto,
+             [{applications,[kernel,stdlib,elixir,logger,ecto,mssqlex]},
+              {description,"Ecto Adapter for Microsoft SQL Server. Using Mssqlex."},
+              {modules,['Elixir.MssqlEcto','Elixir.MssqlEcto.Connection',
+                        'Elixir.MssqlEcto.Helpers',
+                        'Elixir.MssqlEcto.Migration','Elixir.MssqlEcto.Query',
+                        'Elixir.MssqlEcto.QueryString',
+                        'Elixir.MssqlEcto.Storage',
+                        'Elixir.MssqlEcto.Structure','Elixir.MssqlEcto.Type']},
+              {registered,[]},
+              {vsn,"1.2.0"}]}.
