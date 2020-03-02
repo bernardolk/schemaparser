@@ -29,7 +29,7 @@ defmodule SchemaParser do
            "VARCHAR"
          ],
          colmodifiers: [
-           is_nullable: ["YES", "YES", "YES", "YES", "YES", "YES", "YES"],
+           is_nullable: ["NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL"],
            char_maxlength: ["30", "30", "30", "30", "30", "30", "30"],
            numeric_precision: [nil, nil, nil, nil, nil, nil, nil]
          ]
@@ -85,9 +85,21 @@ defmodule SchemaParser do
           IO.inspect(deletion)
 
           ketp_columns = deletion |> Keyword.take([:keep]) |> Keyword.values()
+          del_cmds = deletion |> Keyword.take([:drop]) |> Keyword.values()
 
           dbschema = filterSchema(Enum.into(dbschema, %{}), ketp_columns)
           IO.inspect(dbschema)
+
+          ns = checkCreation(Enum.into(dbschema, %{}), Enum.into(newschema, %{}))
+          IO.inspect ns
+
+          add_cmds = ns |> Keyword.take([:create]) |> Keyword.values()
+
+          cmd = del_cmds ++ add_cmds
+          IO.inspect(cmd)
+
+          ans = executeCmds(cmd, connPID)
+          IO.inspect ans
           # deletionCommands =
           #   deletion
           #   |> Keyword.take([:drop])
@@ -197,7 +209,7 @@ defmodule SchemaParser do
           acc ++ [{:keep, colname}]
 
         true ->
-          acc ++ [{:drop, "alter table #{tableschema}.#{tablename} drop column #{colname}"}]
+          acc ++ [{:drop, "alter table #{tableschema}.#{tablename} drop column [#{colname}]"}]
       end
     end)
   end
@@ -209,8 +221,7 @@ defmodule SchemaParser do
     coltypes = schema.coltypes
     colmods = Enum.into(schema.colmodifiers, %{})
 
-    indexes =
-      Enum.map(kept_columns, fn column -> Enum.find_index(columns, &(&1 == column)) end)
+    indexes = Enum.map(kept_columns, fn column -> Enum.find_index(columns, &(&1 == column)) end)
 
     # filtered_schema = [schema: tableschema, tablename: tablename, columns: [], coltypes: [], colmodifiers: [is_nullable: [], char_maxlength: [], numeric_precision: []]]
 
@@ -245,17 +256,37 @@ defmodule SchemaParser do
   end
 
   # for each column, checks if needs to be deleted in database
-  defp checkCreation(tablename, oldschema, newschema) do
-    Enum.map(newschema, fn column ->
-      case _toCreate? = Enum.member?(oldschema, column) do
+  defp checkCreation(ds, ns) do
+    tablename = ds.tablename
+    schema = ds.schema
+    ns_mods = Enum.into(ns.colmodifiers, %{})
+
+    Enum.reduce(ns.columns,[], fn column, acc ->
+      col_index = Enum.find_index(ns.columns, &(&1 == column))
+      coltype = Enum.at(ns.coltypes, col_index)
+
+      colmods = Enum.reduce(ns_mods, [], fn {_mod,modlist}, acc ->
+        col_mod = Enum.at(modlist, col_index)
+
+        case col_mod do
+          _ -> acc ++ [" #{col_mod}"]
+          nil -> acc
+        end
+      end)
+
+      case _toCreate? = Enum.member?(ds.columns, column) do
         false ->
-          [{:create, "alter table #{tablename} add [#{column}] VARCHAR(30)"}, {:add, column}]
+          acc ++
+            [
+              {:create, "alter table #{schema}.#{tablename} add [#{column}] #{coltype} #{colmods}"},
+              {:add, column}
+            ]
 
         true ->
-          {:ignore, ""}
+          acc ++ [{:ignore, ""}]
       end
     end)
-    |> List.flatten()
+    # |> List.flatten()
   end
 
   defp dropAndCreate(tablename, newschema) do
