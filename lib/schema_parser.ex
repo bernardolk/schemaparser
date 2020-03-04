@@ -13,164 +13,109 @@ defmodule SchemaParser do
       )
 
     # Table schema parsed data. A tuple with :table atom, table index (integer, local), schema definition (list)
-    pData = [
+    # TO KEEP IN MIND !!
+    # DEFAULT VALUES FOR CHAR_MAXLENGHT: 1, NUMERIC_PRECISION: 10
+    # numeric precision, cannot be set when creating the column. It can only be read from (but in this case, just checking for INT do the trick)
+    # right now, for INT's it is dropping and creating them because when it checks the db, numeric precision is 10 and when i set it i gotta set it to nil
+    parsed_schema_data = [
       {:table, 0,
-       [
+       %{
          schema: "dbo",
          tablename: "testTable",
-         columns: ["Id", "Name", "Bananas", "Group", "Resources", "Beatrice", "Mercury"],
+         columns: ["Hakuna Matata", "Mama"],
          coltypes: [
-           "VARCHAR",
-           "INT",
-           "VARCHAR",
-           "VARCHAR",
-           "VARCHAR",
            "VARCHAR",
            "VARCHAR"
          ],
          colmodifiers: [
-           is_nullable: ["NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL"],
-           char_maxlength: ["30", "30", "30", "30", "30", "30", "30"],
-           numeric_precision: [nil, nil, nil, nil, nil, nil, nil]
+           is_nullable: ["NOT NULL", "NOT NULL"],
+           char_maxlength: [25, 1],
+           numeric_precision: [nil, nil]
          ]
-       ]}
+       }}
     ]
 
-    qData =
-      Enum.map(pData, fn {:table, index, tabledata} ->
-        [
-          schema: tableschema,
-          tablename: tablename,
-          columns: _columns,
-          coltypes: _coltypes,
-          colmodifiers: _colmodifiers
-        ] = tabledata
-
-        getTabledataSQL(tableschema, tablename, connPID)
-        # with {:ok, data} <- query(connPID, tabledata_cmd) do
-        #   {:ok, data}
-        #   # {:table, index, [schema: tablename: tablename, qCols]}
-        # else
-        #   {:error, details} -> {:error, tablename, details}
-        # end
+    db_schema_data =
+      Enum.map(parsed_schema_data, fn {:table, index, tabledata} ->
+        getTabledataSQL(tabledata.schema, tabledata.tablename, connPID)
       end)
 
-    IO.inspect(qData)
+    IO.inspect(db_schema_data)
     IO.puts("\n")
 
-    # for each queryed table in database..
-    for table <- pData do
-      with {:table, index, newschema} = table do
-        [
+    # for each table definition found in text file...
+    for data_entry <- parsed_schema_data do
+      # gets the table definition (new_table_schema)
+      with {:table, index, new_table_schema} <- data_entry do
+        %{
           schema: new_tableschema,
           tablename: new_tablename,
           columns: new_columns,
           coltypes: new_coltypes,
           colmodifiers: new_modifiers
-        ] = newschema
+        } = new_table_schema
 
-        {signal, dbschema} = Enum.at(qData, index)
+        {signal, db_table_schema} = Enum.at(db_schema_data, index)
 
-        IO.puts("\ndbschema:")
-        IO.inspect(dbschema)
-
-        with [
-               schema: db_tableschema,
-               tablename: db_tablename,
-               columns: db_columns,
-               coltypes: db_coltypes,
-               colmodifiers: db_modifiers
-             ] = dbschema do
-          deletion = checkDeletion(Enum.into(dbschema, %{}), Enum.into(newschema, %{}))
+        IO.puts("\ndb_table_schema:")
+        IO.inspect(db_table_schema)
+        # gets the correspondent database table schema
+        # if it fails to match, either create a new table or
+        # process error
+        with {:table,
+              %{
+                schema: db_tableschema,
+                tablename: db_tablename,
+                columns: db_columns,
+                coltypes: db_coltypes,
+                colmodifiers: db_modifiers
+              }} <- {signal, db_table_schema} do
+          deletion = checkDeletion(db_table_schema, new_table_schema)
+          IO.puts("\n result from checkDeletion: ")
           IO.inspect(deletion)
 
-          ketp_columns = deletion |> Keyword.take([:keep]) |> Keyword.values()
-          del_cmds = deletion |> Keyword.take([:drop]) |> Keyword.values()
+          kept_columns = Keyword.get_values(deletion, :keep)
+          del_cmds = Keyword.get_values(deletion, :drop)
 
-          dbschema = filterSchema(Enum.into(dbschema, %{}), ketp_columns)
-          IO.inspect(dbschema)
+          IO.puts("kept columns")
+          IO.inspect(kept_columns)
 
-          ns = checkCreation(Enum.into(dbschema, %{}), Enum.into(newschema, %{}))
-          IO.inspect ns
+          db_table_schema = filterSchema(db_table_schema, kept_columns)
+          IO.inspect(db_table_schema)
 
-          add_cmds = ns |> Keyword.take([:create]) |> Keyword.values()
+          IO.puts("\ndel Cmds:")
+          IO.inspect(del_cmds)
 
-          cmd = del_cmds ++ add_cmds
-          IO.inspect(cmd)
+          case kept_columns do
+            [] ->
+              dcsql = getDropAndCreateCmds(new_table_schema)
+              IO.inspect(dcsql)
+              IO.inspect(executeCmds(dcsql, connPID))
 
-          ans = executeCmds(cmd, connPID)
-          IO.inspect ans
-          # deletionCommands =
-          #   deletion
-          #   |> Keyword.take([:drop])
-          #   |> Keyword.values()
+            _ ->
+              creation = checkColumnCreation(db_table_schema, new_table_schema)
+              IO.inspect(creation)
 
-          # dbschema =
-          #   deletion
-          #   |> Keyword.take([:keep])
-          #   |> Keyword.values()
+              add_cmds = Keyword.get_values(creation, :create)
 
-          # creation = checkCreation(tablename, dbschema, newschema)
+              cmd = del_cmds ++ add_cmds
+              IO.inspect(cmd)
 
-          # creationCommands =
-          #   creation
-          #   |> Keyword.take([:create])
-          #   |> Keyword.values()
-
-          # aditions =
-          #   creation
-          #   |> Keyword.take([:add])
-          #   |> Keyword.values()
-
-          # dbschema = List.flatten(dbschema, aditions)
-          # commands = List.flatten(deletionCommands, creationCommands)
-
-          # # IO.inspect(dbschema)
-          # # IO.inspect(commands)
-
-          # dbschema_dc =
-          #   dbschema
-          #   |> Enum.map(&String.downcase(&1))
-
-          # newschema_dc =
-          #   newschema
-          #   |> Enum.map(&String.downcase(&1))
-
-          # cond do
-          #   dbschema_dc == newschema_dc ->
-          #     IO.puts("\nNew Schema:")
-          #     IO.inspect(dbschema)
-          #     IO.puts("\nExecuted Commands:")
-          #     IO.inspect(commands)
-          #     # IO.puts("\nSQL Server response:")
-          #     # IO.inspect(executeCmds(commands, connPID))
-
-          #   dbschema_dc != newschema_dc ->
-          #     commands = dropAndCreate(tablename, newschema)
-          #     IO.puts("\nNew Schema:")
-          #     IO.inspect(dbschema)
-          #     IO.puts("\nExecuted Commands (drop and create):")
-          #     IO.inspect(commands)
-          #     # IO.puts("\nSQL Server response:")
-          #     # IO.inspect(executeCmds(commands, connPID))
-          # end
+              ans = executeCmds(cmd, connPID)
+              IO.inspect(ans)
+          end
         else
           {:error, tablename, reason} ->
-            [odbc_code: odbc_code, message: message] = reason
-            IO.inspect(odbc_code)
-
-            case odbc_code do
-              :base_table_or_view_not_found ->
-                cmds = createTable(tablename, newschema)
-                IO.inspect(cmds)
-                IO.inspect(executeCmds(cmds, connPID))
-
-              _ ->
-                IO.inspect({:error, tablename, message})
-            end
+            handleError(tablename, reason)
 
           {:table_not_found, message} ->
             IO.inspect(message)
+            ccmd = getCreateTableCmds(new_table_schema)
+            IO.inspect(ccmd)
+            IO.inspect(ccmd |> executeCmds(connPID))
+
+          _ ->
+            IO.inspect({signal, db_table_schema})
         end
       else
         _ -> {:error, "Parsed file is corrupted (unformatted)."}
@@ -180,9 +125,73 @@ defmodule SchemaParser do
     :ok
   end
 
-  defp createTable(tablename, newschema) do
-    "create table #{tablename} (" <>
-      Enum.reduce(newschema, "", fn col, sql -> sql <> "[#{col}] VARCHAR(30)," end) <> ")"
+  defp handleError(tablename, reason) do
+    [odbc_code: odbc_code, message: message] = reason
+    IO.inspect(odbc_code)
+
+    case odbc_code do
+      :base_table_or_view_not_found ->
+        # cmds = getCreateTableCmds(new_table_schema)
+        # IO.inspect(cmds)
+        # IO.inspect(executeCmds(cmds, connPID))
+        IO.puts("error 717: base table or view not found")
+
+      _ ->
+        IO.inspect({:error, tablename, message})
+    end
+  end
+
+  defp getCreateTableCmds(new_table_schema) do
+    ns = Enum.into(new_table_schema, %{})
+    tablename = ns.tablename
+    schema = ns.schema
+    ns_mods = Enum.into(ns.colmodifiers, %{})
+
+    IO.inspect(ns_mods)
+
+    # special modifier (related to column types)
+    ml = ns_mods[:char_maxlength]
+    np = ns_mods[:numeric_precision]
+    # removes from modifiers list so won't be concatenated as a regular modifier
+    ns_mods = Map.delete(ns_mods, :char_maxlength)
+    ns_mods = Map.delete(ns_mods, :numeric_precision)
+
+    IO.inspect(ns_mods)
+
+    columns =
+      Enum.reduce(ns.columns, "", fn column, acc ->
+        ns_col_index = Enum.find_index(ns.columns, &(&1 == column))
+        coltype = Enum.at(ns.coltypes, ns_col_index)
+        col_ml = Enum.at(ml, ns_col_index)
+        col_np = Enum.at(np, ns_col_index)
+
+        typemod =
+          cond do
+            col_ml != nil ->
+              "(#{col_ml})"
+
+            col_np != nil ->
+              "(#{col_np})"
+
+            true ->
+              ""
+          end
+
+        colmods =
+          Enum.reduce(ns_mods, "", fn {_mod, modlist}, acc2 ->
+            col_mod = Enum.at(modlist, ns_col_index)
+
+            case col_mod do
+              nil -> acc2
+              _ -> acc2 <> "#{col_mod} "
+            end
+          end)
+
+        acc <> " [#{column}] #{coltype}#{typemod} #{colmods},"
+      end)
+
+    # returns the create table SQL query
+    "create table [#{schema}].[#{tablename}] (" <> columns <> ")"
   end
 
   # for each column, checks if needs to be deleted in database
@@ -191,25 +200,69 @@ defmodule SchemaParser do
     tableschema = ds.schema
     dcolmods = Enum.into(ds.colmodifiers, %{})
     ncolmods = Enum.into(ns.colmodifiers, %{})
-    col_n = ds.columns |> Kernel.length()
-    IO.inspect(col_n)
+    col_n = length(ds.columns)
 
+    # alias
     f = &Enum.at(&1, &2)
 
-    Enum.reduce(0..(col_n - 1), [], fn i, acc ->
-      colname = f.(ds.columns, i)
+    # for each column in database, checks if it should be deleted and returns list of columns to keep
+    Enum.reduce(0..(col_n - 1), [], fn ds_col_i, acc ->
+      colname = f.(ds.columns, ds_col_i)
+      newschema_column_index = Enum.find_index(ns.columns, &(&1 == colname))
 
-      cond do
-        f.(ns.columns, i) |> String.downcase() == colname |> String.downcase() &&
-          f.(ns.coltypes, i) |> String.downcase() == f.(ds.coltypes, i) |> String.downcase() &&
-          f.(ncolmods.is_nullable, i) |> String.downcase() ==
-            f.(dcolmods.is_nullable, i) |> String.downcase() &&
-          f.(ncolmods.char_maxlength, i) == f.(dcolmods.char_maxlength, i) &&
-            f.(ncolmods.numeric_precision, i) == f.(dcolmods.numeric_precision, i) ->
-          acc ++ [{:keep, colname}]
+      IO.puts("\nfound #{colname} from db in newschema??")
+      IO.puts("#{newschema_column_index != nil}")
 
-        true ->
-          acc ++ [{:drop, "alter table #{tableschema}.#{tablename} drop column [#{colname}]"}]
+      case newschema_column_index do
+        nil ->
+          acc ++ [{:drop, "alter table [#{tableschema}].[#{tablename}] drop column [#{colname}]"}]
+
+        ns_col_i ->
+          mod1_ns = Enum.at(ncolmods.is_nullable, ns_col_i)
+          mod2_ns = Enum.at(ncolmods.numeric_precision, ns_col_i)
+          mod3_ns = Enum.at(ncolmods.char_maxlength, ns_col_i)
+
+          mod1_ds = Enum.at(dcolmods.is_nullable, ds_col_i)
+          mod2_ds = Enum.at(dcolmods.numeric_precision, ds_col_i)
+          mod3_ds = Enum.at(dcolmods.char_maxlength, ds_col_i)
+
+          col_type_ds = Enum.at(ds.coltypes, ds_col_i) |> String.downcase()
+          col_type_ns = Enum.at(ns.coltypes, ns_col_i) |> String.downcase()
+
+          # overloads numeric precision if INT
+          mod2_ns =
+            cond do
+              col_type_ns == "int" -> nil
+              true -> mod2_ns
+            end
+
+          mod2_ds =
+            cond do
+              col_type_ds == "int" -> nil
+              true -> mod2_ds
+            end
+
+          IO.inspect([
+            mod1_ds,
+            mod1_ns,
+            mod2_ds,
+            mod2_ns,
+            mod3_ds,
+            mod3_ns,
+            col_type_ds,
+            col_type_ns
+          ])
+
+          # conditions for deletion of column
+          cond do
+            mod1_ds == mod1_ns && mod2_ds == mod2_ns && mod3_ds == mod3_ns &&
+                col_type_ds == col_type_ns ->
+              acc ++ [{:keep, colname}]
+
+            true ->
+              acc ++
+                [{:drop, "alter table [#{tableschema}].[#{tablename}] drop column [#{colname}]"}]
+          end
       end
     end)
   end
@@ -221,76 +274,113 @@ defmodule SchemaParser do
     coltypes = schema.coltypes
     colmods = Enum.into(schema.colmodifiers, %{})
 
+    # indexes of filtered columns
     indexes = Enum.map(kept_columns, fn column -> Enum.find_index(columns, &(&1 == column)) end)
 
-    # filtered_schema = [schema: tableschema, tablename: tablename, columns: [], coltypes: [], colmodifiers: [is_nullable: [], char_maxlength: [], numeric_precision: []]]
-
-    f_cols = filterListByIndex(columns, indexes)
     f_coltypes = filterListByIndex(coltypes, indexes)
     f_nullable = filterListByIndex(colmods.is_nullable, indexes)
     f_charlength = filterListByIndex(colmods.char_maxlength, indexes)
     f_numprecision = filterListByIndex(colmods.numeric_precision, indexes)
 
-    [
+    # return value
+    %{
       schema: tableschema,
       tablename: tablename,
-      columns: f_cols,
+      columns: kept_columns,
       coltypes: f_coltypes,
       colmodifiers: [
         is_nullable: f_nullable,
         char_maxlength: f_charlength,
         numeric_precision: f_numprecision
       ]
-    ]
+    }
   end
 
   defp filterListByIndex(list, filter) when is_list(list) do
     with [] <- filter do
-      Enum.map(filter, fn index ->
-        Enum.at(list, index)
-      end)
+      list
     else
       _ ->
-        []
+        Enum.map(filter, fn index ->
+          Enum.at(list, index)
+        end)
     end
   end
 
-  # for each column, checks if needs to be deleted in database
-  defp checkCreation(ds, ns) do
+  defp checkColumnCreation(ds, ns) do
+    # this function expects to be called after checkColumnDeletion
+    # so that any column type/mod checking is made prior on the checkColumnDeletion function
+    # and now we just need to create what's missing
     tablename = ds.tablename
     schema = ds.schema
     ns_mods = Enum.into(ns.colmodifiers, %{})
+    # special modifier (related to column types)
+    ml = ns_mods[:char_maxlength]
+    np = ns_mods[:numeric_precision]
+    # removes from modifiers list so won't be concatenated as a regular modifier
+    ns_mods = Map.delete(ns_mods, :char_maxlength)
+    ns_mods = Map.delete(ns_mods, :numeric_precision)
 
-    Enum.reduce(ns.columns,[], fn column, acc ->
-      col_index = Enum.find_index(ns.columns, &(&1 == column))
-      coltype = Enum.at(ns.coltypes, col_index)
+    IO.puts("\nds columns: ")
+    IO.inspect(ds.columns)
+    IO.puts("\nns columns: ")
+    IO.inspect(ns.columns)
 
-      colmods = Enum.reduce(ns_mods, [], fn {_mod,modlist}, acc ->
-        col_mod = Enum.at(modlist, col_index)
-
-        case col_mod do
-          _ -> acc ++ [" #{col_mod}"]
-          nil -> acc
-        end
-      end)
+    # return value
+    Enum.reduce(ns.columns, [], fn column, acc ->
+      ns_col_index = Enum.find_index(ns.columns, &(&1 == column))
+      coltype = Enum.at(ns.coltypes, ns_col_index)
 
       case _toCreate? = Enum.member?(ds.columns, column) do
         false ->
+          col_ml = Enum.at(ml, ns_col_index)
+          col_np = Enum.at(np, ns_col_index)
+
+          typemod =
+            cond do
+              col_ml != nil ->
+                "(#{col_ml})"
+
+              col_np != nil ->
+                "(#{col_np})"
+
+              true ->
+                ""
+            end
+
+          # load column modifiers
+          colmods =
+            Enum.reduce(ns_mods, [], fn {_mod, modlist}, acc ->
+              col_mod = Enum.at(modlist, ns_col_index)
+
+              case col_mod do
+                nil -> acc
+                _ -> acc ++ [" #{col_mod}"]
+              end
+            end)
+
+          # reduce return value
           acc ++
             [
-              {:create, "alter table #{schema}.#{tablename} add [#{column}] #{coltype} #{colmods}"},
+              {:create,
+               "alter table [#{schema}].[#{tablename}] add [#{column}] #{coltype}#{typemod} #{
+                 colmods
+               }"},
               {:add, column}
             ]
 
+        # reduce return value
         true ->
-          acc ++ [{:ignore, ""}]
+          acc ++ [{:ignore, "#{column}"}]
       end
     end)
-    # |> List.flatten()
   end
 
-  defp dropAndCreate(tablename, newschema) do
-    ["drop table #{tablename}", createTable(tablename, newschema)]
+  defp getDropAndCreateCmds(new_table_schema) do
+    tablename = new_table_schema.tablename
+    schema = new_table_schema.schema
+
+    ["drop table [#{schema}].[#{tablename}]", getCreateTableCmds(new_table_schema)]
   end
 
   defp query(connPID, sql) do
@@ -298,7 +388,7 @@ defmodule SchemaParser do
 
     case response do
       {:ok, _, data} -> {:ok, data}
-      {:error, details} -> response
+      {:error, _details} -> response
     end
   end
 
@@ -317,9 +407,13 @@ defmodule SchemaParser do
     response = query(connPID, sql)
 
     with {:ok, data} <- response do
-      %{:num_rows => num_rows, :columns => columns, :rows => rows} = data
+      # %{:num_rows => num_rows, :columns => columns, :rows => rows} = data
+      num_rows = data.num_rows
+      columns = data.columns
+      rows = data.rows
 
       if num_rows > 0 do
+        # create map of column definitions
         column_definitions =
           Enum.map(rows, fn row ->
             Enum.zip(columns, row)
@@ -327,19 +421,24 @@ defmodule SchemaParser do
           |> List.flatten()
           |> Enum.map(fn {k, v} -> {:"#{k}", v} end)
 
-        column_names = Keyword.take(column_definitions, [:COLUMN_NAME]) |> Keyword.values()
-        column_types = Keyword.take(column_definitions, [:DATA_TYPE]) |> Keyword.values()
+        column_names = Keyword.get_values(column_definitions, :COLUMN_NAME)
+        column_types = Keyword.get_values(column_definitions, :DATA_TYPE)
+        mod_char_maxlength = Keyword.get_values(column_definitions, :CHARACTER_MAXIMUM_LENGTH)
+        mod_is_nullable = Keyword.get_values(column_definitions, :IS_NULLABLE)
+        mod_numeric_precision = Keyword.get_values(column_definitions, :NUMERIC_PRECISION)
 
-        mod_char_maxlength =
-          Keyword.take(column_definitions, [:CHARACTER_MAXIMUM_LENGTH]) |> Keyword.values()
+        # converts YES to NULL and NO to NOT NULL
+        mod_is_nullable =
+          Enum.map(mod_is_nullable, fn mod_item ->
+            case mod_item do
+              "YES" -> "NULL"
+              "NO" -> "NOT NULL"
+            end
+          end)
 
-        mod_is_nullable = Keyword.take(column_definitions, [:IS_NULLABLE]) |> Keyword.values()
-
-        mod_numeric_precision =
-          Keyword.take(column_definitions, [:NUMERIC_PRECISION]) |> Keyword.values()
-
+        # return value
         {:table,
-         [
+         %{
            schema: tableschema,
            tablename: tablename,
            columns: column_names,
@@ -349,7 +448,7 @@ defmodule SchemaParser do
              char_maxlength: mod_char_maxlength,
              numeric_precision: mod_numeric_precision
            ]
-         ]}
+         }}
       else
         {:table_not_found, "The table #{tableschema}.#{tablename} wasn't found in the database."}
       end
