@@ -125,6 +125,15 @@ defmodule SchemaParser do
     :ok
   end
 
+  defp query(connPID, sql) do
+    response = Mssqlex.query(connPID, sql, [])
+
+    case response do
+      {:ok, _, data} -> {:ok, data}
+      {:error, _details} -> response
+    end
+  end
+
   defp handleError(tablename, reason) do
     [odbc_code: odbc_code, message: message] = reason
     IO.inspect(odbc_code)
@@ -140,6 +149,15 @@ defmodule SchemaParser do
         IO.inspect({:error, tablename, message})
     end
   end
+
+
+  defp getDropAndCreateCmds(new_table_schema) do
+    tablename = new_table_schema.tablename
+    schema = new_table_schema.schema
+
+    ["drop table [#{schema}].[#{tablename}]", getCreateTableCmds(new_table_schema)]
+  end
+
 
   defp getCreateTableCmds(new_table_schema) do
     ns = Enum.into(new_table_schema, %{})
@@ -376,21 +394,6 @@ defmodule SchemaParser do
     end)
   end
 
-  defp getDropAndCreateCmds(new_table_schema) do
-    tablename = new_table_schema.tablename
-    schema = new_table_schema.schema
-
-    ["drop table [#{schema}].[#{tablename}]", getCreateTableCmds(new_table_schema)]
-  end
-
-  defp query(connPID, sql) do
-    response = Mssqlex.query(connPID, sql, [])
-
-    case response do
-      {:ok, _, data} -> {:ok, data}
-      {:error, _details} -> response
-    end
-  end
 
   defp getTabledataSQL(tableschema, tablename, connPID) do
     IO.puts(tablename)

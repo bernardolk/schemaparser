@@ -22,7 +22,8 @@ defmodule SchemaParser.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:mssqlex, "~> 1.1.0"}
+      {:mssqlex, "~> 1.1.0"},
+      {:nimble_parsec, "~> 0.2"}
     ]
   end
 end
