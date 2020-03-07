@@ -2,26 +2,52 @@ defmodule Parser do
   import NimbleParsec
   import Parser.Helpers
 
-  defparsec :tablename,
+  defparsec(
+    :table,
     empty()
-    |> ignore(string("{"))
-    # |> optional(repeat(string(" ")))
-    |> white_space()
-    |> ascii_char([?a..?z, ?A..?Z])
-    |> repeat(ascii_char([?a..?z, ?A..?Z, ?0..?9]))
-    |> ignore(string(":"))
-    |> white_space()
-    |> ignore(string("ZUU"))
+    |> string("{")
+    |> (&ignore(&1, whiteSpace())).()
+    |> identifier()
+    |> string(":")
+    |> newline()
+    |> (&ignore(&1, whiteSpace())).()
+    |> identifier()
+    |> string(" ")
+    |> optional(spaces())
+    |> coltype()
+    |> optional(spaces())
+    |> string(",")
+    |> optional(spaces())
+    |> newline()
+    |> #optional(
+      repeat(
+        ignore(whiteSpace())
+        |> identifier()
+        |> string(" ")
+        |> optional(spaces())
+        |> coltype()
+        |> optional(spaces())
+        |> string(",")
+        |> optional(spaces())
+        |> newline()
+      #)
+    )
+  |> string("}")
+  )
 
+  # |> (&(replace(whiteSpace(&1),"\n"))).()
+  # |> identifier()
+  # |> coltype()
+  # |> string("EO")
 
   # |> lookahead_not()
 
   def main() do
-    test = "{
-        test2:
+    test = "{test2:
+    Field1 INT,
+    Field2 VARCHAR(20),
+    Field3 DATETIME}"
 
-          ZUU}"
-
-    Parser.tablename(test)
+    Parser.table(test)
   end
 end
