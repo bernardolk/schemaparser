@@ -1,8 +1,17 @@
 defmodule SchemaParser do
   @moduledoc false
 
+  def readfile(path) do
+    case File.read(path) do
+      {:ok, text} -> text
+      {:error, message} -> message
+      _ -> :wtf
+    end
+  end
+
+
   @doc false
-  def run do
+  def run(parsed_schema_data) do
     {:ok, connPID} =
       Mssqlex.start_link(
         database: "testDb",
@@ -17,23 +26,23 @@ defmodule SchemaParser do
     # DEFAULT VALUES FOR CHAR_MAXLENGHT: 1, NUMERIC_PRECISION: 10
     # numeric precision, cannot be set when creating the column. It can only be read from (but in this case, just checking for INT do the trick)
     # right now, for INT's it is dropping and creating them because when it checks the db, numeric precision is 10 and when i set it i gotta set it to nil
-    parsed_schema_data = [
-      {:table, 0,
-       %{
-         schema: "dbo",
-         tablename: "testTable",
-         columns: ["Hakuna Matata", "Mama"],
-         coltypes: [
-           "VARCHAR",
-           "VARCHAR"
-         ],
-         colmodifiers: [
-           is_nullable: ["NOT NULL", "NOT NULL"],
-           char_maxlength: [25, 1],
-           numeric_precision: [nil, nil]
-         ]
-       }}
-    ]
+    # parsed_schema_data = [
+    #   {:table, 0,
+    #    %{
+    #      schema: "dbo",
+    #      tablename: "testTable",
+    #      columns: ["Hakuna Matata", "ExampleField"],
+    #      coltypes: [
+    #        "VARCHAR",
+    #        "VARCHAR"
+    #      ],
+    #      colmodifiers: [
+    #        is_nullable: ["NOT NULL", "NOT NULL"],
+    #        char_maxlength: [25, 1],
+    #        numeric_precision: [nil, nil]
+    #      ]
+    #    }}
+    # ]
 
     db_schema_data =
       Enum.map(parsed_schema_data, fn {:table, index, tabledata} ->
@@ -260,16 +269,16 @@ defmodule SchemaParser do
               true -> mod2_ds
             end
 
-          IO.inspect([
-            mod1_ds,
-            mod1_ns,
-            mod2_ds,
-            mod2_ns,
-            mod3_ds,
-            mod3_ns,
-            col_type_ds,
-            col_type_ns
-          ])
+          # IO.inspect([
+          #   mod1_ds,
+          #   mod1_ns,
+          #   mod2_ds,
+          #   mod2_ns,
+          #   mod3_ds,
+          #   mod3_ns,
+          #   col_type_ds,
+          #   col_type_ns
+          # ])
 
           # conditions for deletion of column
           cond do
