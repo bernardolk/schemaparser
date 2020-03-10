@@ -27,14 +27,14 @@ defmodule Parser.Helpers do
   def coltype(combinator) do
     combinator
     |> choice([
-      concat(string("INT"), empty() |> replace(nil)),
+      concat(string("INT"), empty() |> replace(1)),
       concat(
         string("VARCHAR"),
         choice([
           ignore(string("("))
           |> ascii_string([?0..?9], min: 1)
           |> ignore(string(")")),
-          empty() |> replace(nil)
+          empty() |> replace("1")
         ])
       ),
       concat(
@@ -48,5 +48,10 @@ defmodule Parser.Helpers do
       ),
       string("FLOAT")
     ])
+  end
+
+  def colmod(combinator) do
+    combinator
+    |> choice([string("NULL"), string("NOT NULL"), empty() |> replace("NOT NULL")])
   end
 end

@@ -44,6 +44,9 @@ defmodule SchemaParser do
     #    }}
     # ]
 
+    IO.inspect(parsed_schema_data)
+    IO.puts("\n")
+
     db_schema_data =
       Enum.map(parsed_schema_data, fn {:table, index, tabledata} ->
         getTabledataSQL(tabledata.schema, tabledata.tablename, connPID)
@@ -269,16 +272,16 @@ defmodule SchemaParser do
               true -> mod2_ds
             end
 
-          # IO.inspect([
-          #   mod1_ds,
-          #   mod1_ns,
-          #   mod2_ds,
-          #   mod2_ns,
-          #   mod3_ds,
-          #   mod3_ns,
-          #   col_type_ds,
-          #   col_type_ns
-          # ])
+          IO.inspect([
+            mod1_ds,
+            mod1_ns,
+            mod2_ds,
+            mod2_ns,
+            mod3_ds,
+            mod3_ns,
+            col_type_ds,
+            col_type_ns
+          ])
 
           # conditions for deletion of column
           cond do
@@ -365,11 +368,11 @@ defmodule SchemaParser do
 
           typemod =
             cond do
-              col_ml != nil ->
-                "(#{col_ml})"
+              col_ml != nil -> s_ml = Integer.to_string(col_ml)
+                "(#{s_ml})"
 
-              col_np != nil ->
-                "(#{col_np})"
+              col_np != nil -> s_np = Integer.to_string(col_np)
+                "(#{s_np})"
 
               true ->
                 ""
