@@ -2,9 +2,9 @@
              [{applications,[kernel,stdlib,elixir,logger,nimble_parsec,
                              mssqlex]},
               {description,"schema_parser"},
-              {modules,['Elixir.Parser','Elixir.Parser.Helpers',
-                        'Elixir.SchemaParser',
-                        'Elixir.SchemaParser.Application']},
+              {modules,['Elixir.Parser','Elixir.SchemaParser',
+                        'Elixir.SchemaParser.Application',
+                        'Elixir.SchemaParser.Helpers']},
               {registered,[]},
               {vsn,"0.1.0"},
               {mod,{'Elixir.SchemaParser.Application',[]}}]}.

@@ -1,5 +1,139 @@
 defmodule SchemaParser do
   @moduledoc false
+  import NimbleParsec
+  import SchemaParser.Helpers
+
+  defparsec(
+    :tables,
+    eventually(string("{"))
+    |> eventually(string("}"))
+  )
+
+  defparsec(
+    :table,
+    ignore(optional(whiteSpace()))
+    |> ignore(string("{"))
+    |> ignore(optional(whiteSpace()))
+    |> identifier()
+    |> ignore(string("."))
+    |> identifier()
+    |> ignore(string(":"))
+    |> ignore(newline())
+    |> ignore(optional(whiteSpace()))
+    |> identifier()
+    |> ignore(string(" "))
+    |> ignore(optional(spaces()))
+    |> coltype()
+    |> ignore(optional(spaces()))
+    |> colmod()
+    |> ignore(optional(spaces()))
+    |> optional(
+      repeat(
+        string(",")
+        |> ignore(optional(spaces()))
+        |> ignore(whiteSpace())
+        |> identifier()
+        |> ignore(string(" "))
+        |> ignore(optional(spaces()))
+        |> coltype()
+        |> ignore(optional(spaces()))
+        |> colmod()
+        |> ignore(optional(spaces()))
+      )
+    )
+    |> ignore(optional(whiteSpace()))
+    |> ignore(string("}"))
+  )
+
+  def parse() do
+    raw_text = readfile("schema.txt")
+    text = String.trim(raw_text)
+    tableList = parseTables(text)
+
+    IO.inspect(tableList)
+
+  parsedTablesList = Enum.map(tableList, fn table ->
+      tableindex = Enum.find_index(tableList, &(&1 == table))
+      tableschema = Enum.at(table, 0)
+      tablename = Enum.at(table, 1)
+
+      {_, tableFields} = Enum.split(table, 2)
+
+      columns = parseFields(tableFields, 0)
+      coltypes = parseFields(tableFields, 1)
+      colprecisions = parseFields(tableFields, 2)
+      colmods = parseFields(tableFields, 3)
+
+      {_i, char_ml} =
+        Enum.reduce(coltypes, {0, []}, fn type, {i, acc} ->
+          precision = Enum.at(colprecisions, i)
+          IO.inspect precision
+          case type do
+            "VARCHAR" ->
+              {value, _r} = Integer.parse(precision)
+              {i + 1, acc ++ [value]}
+
+            _ ->
+              {i + 1, acc ++ [nil]}
+          end
+        end)
+
+      {_i, num_pr} =
+        Enum.reduce(coltypes, {0, []}, fn type, {i, acc} ->
+          precision = Enum.at(colprecisions, i)
+          case type do
+            "FLOAT" ->
+              {value, _r} = Integer.parse(precision)
+              {i + 1, acc ++ [value]}
+
+            _ ->
+              {i + 1, acc ++ [nil]}
+          end
+        end)
+
+      {:table, tableindex,
+       %{
+         schema: tableschema,
+         tablename: tablename,
+         columns: columns,
+         coltypes: coltypes,
+         colmodifiers: [
+           is_nullable: colmods,
+           char_maxlength: char_ml,
+           numeric_precision: num_pr
+         ]
+       }}
+    end)
+
+    resultCmds = run(parsedTablesList)
+    File.write("sqlcmds.txt", inspect(resultCmds))
+    File.write("sqlcmds_bin.txt", :erlang.term_to_binary(resultCmds))
+
+  end
+
+  def parseFields(fields, index) do
+    {field, rest} = Enum.split(fields, 5)
+
+    case rest do
+      [] -> [Enum.at(field, index)]
+      _ -> [Enum.at(field, index)] ++ parseFields(rest, index)
+    end
+  end
+
+  def parseTables(text) do
+    result = table(text)
+
+    case result do
+      {:ok, table, rest, _map, _tup, _int} ->
+        case rest do
+          "" -> [table]
+          _ -> [table] ++ parseTables(rest)
+        end
+
+      {:error, message, rest, _map, _tup, _int} ->
+        {:error, message, rest}
+    end
+  end
 
   def readfile(path) do
     case File.read(path) do
@@ -8,7 +142,6 @@ defmodule SchemaParser do
       _ -> :wtf
     end
   end
-
 
   @doc false
   def run(parsed_schema_data) do
@@ -56,7 +189,7 @@ defmodule SchemaParser do
     IO.puts("\n")
 
     # for each table definition found in text file...
-    for data_entry <- parsed_schema_data do
+    commands = Enum.map(parsed_schema_data,fn data_entry ->
       # gets the table definition (new_table_schema)
       with {:table, index, new_table_schema} <- data_entry do
         %{
@@ -100,9 +233,9 @@ defmodule SchemaParser do
 
           case kept_columns do
             [] ->
-              dcsql = getDropAndCreateCmds(new_table_schema)
-              IO.inspect(dcsql)
-              IO.inspect(executeCmds(dcsql, connPID))
+              getDropAndCreateCmds(new_table_schema)
+              # IO.inspect(dcsql)
+              # IO.inspect(executeCmds(dcsql, connPID))
 
             _ ->
               creation = checkColumnCreation(db_table_schema, new_table_schema)
@@ -110,11 +243,11 @@ defmodule SchemaParser do
 
               add_cmds = Keyword.get_values(creation, :create)
 
-              cmd = del_cmds ++ add_cmds
-              IO.inspect(cmd)
+              del_cmds ++ add_cmds
+              # IO.inspect(cmd)
 
-              ans = executeCmds(cmd, connPID)
-              IO.inspect(ans)
+              # ans = executeCmds(cmd, connPID)
+              # IO.inspect(ans)
           end
         else
           {:error, tablename, reason} ->
@@ -122,9 +255,9 @@ defmodule SchemaParser do
 
           {:table_not_found, message} ->
             IO.inspect(message)
-            ccmd = getCreateTableCmds(new_table_schema)
-            IO.inspect(ccmd)
-            IO.inspect(ccmd |> executeCmds(connPID))
+            getCreateTableCmds(new_table_schema)
+            # IO.inspect(ccmd)
+            # IO.inspect(ccmd |> executeCmds(connPID))
 
           _ ->
             IO.inspect({signal, db_table_schema})
@@ -132,9 +265,11 @@ defmodule SchemaParser do
       else
         _ -> {:error, "Parsed file is corrupted (unformatted)."}
       end
-    end
+    end)
 
-    :ok
+    List.flatten(commands)
+
+    # :ok
   end
 
   defp query(connPID, sql) do
@@ -472,13 +607,32 @@ defmodule SchemaParser do
     end
   end
 
-  defp executeCmds(sqlCmds, connPID) when is_list(sqlCmds) do
+  def executeCmds() do
+    {:ok, connPID} =
+      Mssqlex.start_link(
+        database: "testDb",
+        hostname: "localhost",
+        instance_name: "SQLEXPRESS2016",
+        odbc_driver: "ODBC Driver 17 for SQL Server",
+        trusted_connection: "yes"
+      )
+      {:ok, read} = File.read("sqlcmds_bin.txt")
+      sqlCmds = :erlang.binary_to_term(read)
+
     Enum.map(sqlCmds, fn cmd ->
       query(connPID, cmd)
     end)
   end
 
-  defp executeCmds(sqlCmd, connPID) when is_bitstring(sqlCmd) do
-    query(connPID, sqlCmd)
-  end
+  # def executeCmds(sqlCmd) when is_bitstring(sqlCmd) do
+  #   {:ok, connPID} =
+  #     Mssqlex.start_link(
+  #       database: "testDb",
+  #       hostname: "localhost",
+  #       instance_name: "SQLEXPRESS2016",
+  #       odbc_driver: "ODBC Driver 17 for SQL Server",
+  #       trusted_connection: "yes"
+  #     )
+  #   query(connPID, sqlCmd)
+  # end
 end

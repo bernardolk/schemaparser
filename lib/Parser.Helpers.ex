@@ -1,4 +1,4 @@
-defmodule Parser.Helpers do
+defmodule SchemaParser.Helpers do
   import NimbleParsec
 
   def whiteSpace(combinator \\ empty()) do
