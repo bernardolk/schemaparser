@@ -16,7 +16,7 @@ DoisCampo INT NULL
 
 
 {
-dbo.TabelaCarlos:
+dbo.TabelaUhul:
 PrimeiroCampo INT NULL,
-CarlosGay VARCHAR(30) NOT NULL
+MaisTeste DATETIME
 }

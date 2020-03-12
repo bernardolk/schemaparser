@@ -39,19 +39,25 @@ defmodule SchemaParser.Helpers do
       ),
       concat(
         string("DATETIME"),
-        choice([
-          ignore(string("("))
-          |> ascii_string([?0..?9], min: 1)
-          |> ignore(string(")")),
-          empty() |> replace(nil)
-        ])
+        empty() |> replace(nil)
       ),
-      string("FLOAT")
+      concat(
+        string("REAL"),
+        empty() |> replace(24)
+      ),
+      concat(
+        string("FLOAT"),
+        empty() |> replace(53)
+      ),
+      concat(
+        string("DATE"),
+        empty() |> replace(nil)
+      )
     ])
   end
 
   def colmod(combinator) do
     combinator
-    |> choice([string("NULL"), string("NOT NULL"), empty() |> replace("NOT NULL")])
+    |> choice([string("NULL"), string("NOT NULL"), empty() |> replace("NULL")])
   end
 end

@@ -52,63 +52,69 @@ defmodule SchemaParser do
 
     IO.inspect(tableList)
 
-  parsedTablesList = Enum.map(tableList, fn table ->
-      tableindex = Enum.find_index(tableList, &(&1 == table))
-      tableschema = Enum.at(table, 0)
-      tablename = Enum.at(table, 1)
+    parsedTablesList =
+      Enum.map(tableList, fn table ->
+        tableindex = Enum.find_index(tableList, &(&1 == table))
+        tableschema = Enum.at(table, 0)
+        tablename = Enum.at(table, 1)
 
-      {_, tableFields} = Enum.split(table, 2)
+        {_, tableFields} = Enum.split(table, 2)
 
-      columns = parseFields(tableFields, 0)
-      coltypes = parseFields(tableFields, 1)
-      colprecisions = parseFields(tableFields, 2)
-      colmods = parseFields(tableFields, 3)
+        columns = parseFields(tableFields, 0)
+        coltypes = parseFields(tableFields, 1)
+        colprecisions = parseFields(tableFields, 2)
+        colmods = parseFields(tableFields, 3)
 
-      {_i, char_ml} =
-        Enum.reduce(coltypes, {0, []}, fn type, {i, acc} ->
-          precision = Enum.at(colprecisions, i)
-          IO.inspect precision
-          case type do
-            "VARCHAR" ->
-              {value, _r} = Integer.parse(precision)
-              {i + 1, acc ++ [value]}
+        {_i, char_ml} =
+          Enum.reduce(coltypes, {0, []}, fn type, {i, acc} ->
+            precision = Enum.at(colprecisions, i)
+            IO.inspect(precision)
 
-            _ ->
-              {i + 1, acc ++ [nil]}
-          end
-        end)
+            case type do
+              "VARCHAR" ->
+                {value, _r} = Integer.parse(precision)
+                {i + 1, acc ++ [value]}
 
-      {_i, num_pr} =
-        Enum.reduce(coltypes, {0, []}, fn type, {i, acc} ->
-          precision = Enum.at(colprecisions, i)
-          case type do
-            "FLOAT" ->
-              {value, _r} = Integer.parse(precision)
-              {i + 1, acc ++ [value]}
+              _ ->
+                {i + 1, acc ++ [nil]}
+            end
+          end)
 
-            _ ->
-              {i + 1, acc ++ [nil]}
-          end
-        end)
+        {_i, num_pr} =
+          Enum.reduce(coltypes, {0, []}, fn type, {i, acc} ->
+            precision = Enum.at(colprecisions, i)
 
-      {:table, tableindex,
-       %{
-         schema: tableschema,
-         tablename: tablename,
-         columns: columns,
-         coltypes: coltypes,
-         colmodifiers: [
-           is_nullable: colmods,
-           char_maxlength: char_ml,
-           numeric_precision: num_pr
-         ]
-       }}
-    end)
+            case type do
+              "FLOAT" ->
+                # {value, _r} = Integer.parse(precision)
+                {i + 1, acc ++ [precision]}
 
-    resultCmds = run(parsedTablesList)
-    File.write("sqlcmds.txt", inspect(resultCmds))
-    File.write("sqlcmds_bin.txt", :erlang.term_to_binary(resultCmds))
+              "REAL" ->
+                # {value, _r} = Integer.parse(precision)
+                {i + 1, acc ++ [precision]}
 
+              _ ->
+                {i + 1, acc ++ [nil]}
+            end
+          end)
+
+        {:table, tableindex,
+         %{
+           schema: tableschema,
+           tablename: tablename,
+           columns: columns,
+           coltypes: coltypes,
+           colmodifiers: [
+             is_nullable: colmods,
+             char_maxlength: char_ml,
+             numeric_precision: num_pr
+           ]
+         }}
+      end)
+
+    resultCmds = run(parsedTablesList) |> List.flatten()
+    File.write("sqlcmds.temp", inspect(resultCmds))
+    File.write("sqlcmds_bin.temp", :erlang.term_to_binary(resultCmds))
   end
 
   def parseFields(fields, index) do
@@ -189,83 +195,86 @@ defmodule SchemaParser do
     IO.puts("\n")
 
     # for each table definition found in text file...
-    commands = Enum.map(parsed_schema_data,fn data_entry ->
-      # gets the table definition (new_table_schema)
-      with {:table, index, new_table_schema} <- data_entry do
-        %{
-          schema: new_tableschema,
-          tablename: new_tablename,
-          columns: new_columns,
-          coltypes: new_coltypes,
-          colmodifiers: new_modifiers
-        } = new_table_schema
+    commands =
+      Enum.map(parsed_schema_data, fn data_entry ->
+        # gets the table definition (new_table_schema)
+        with {:table, index, new_table_schema} <- data_entry do
+          %{
+            schema: new_tableschema,
+            tablename: new_tablename,
+            columns: new_columns,
+            coltypes: new_coltypes,
+            colmodifiers: new_modifiers
+          } = new_table_schema
 
-        {signal, db_table_schema} = Enum.at(db_schema_data, index)
+          {signal, db_table_schema} = Enum.at(db_schema_data, index)
 
-        IO.puts("\ndb_table_schema:")
-        IO.inspect(db_table_schema)
-        # gets the correspondent database table schema
-        # if it fails to match, either create a new table or
-        # process error
-        with {:table,
-              %{
-                schema: db_tableschema,
-                tablename: db_tablename,
-                columns: db_columns,
-                coltypes: db_coltypes,
-                colmodifiers: db_modifiers
-              }} <- {signal, db_table_schema} do
-          deletion = checkDeletion(db_table_schema, new_table_schema)
-          IO.puts("\n result from checkDeletion: ")
-          IO.inspect(deletion)
-
-          kept_columns = Keyword.get_values(deletion, :keep)
-          del_cmds = Keyword.get_values(deletion, :drop)
-
-          IO.puts("kept columns")
-          IO.inspect(kept_columns)
-
-          db_table_schema = filterSchema(db_table_schema, kept_columns)
+          IO.puts("\ndb_table_schema:")
           IO.inspect(db_table_schema)
+          # gets the correspondent database table schema
+          # if it fails to match, either create a new table or
+          # process error
+          with {:table,
+                %{
+                  schema: db_tableschema,
+                  tablename: db_tablename,
+                  columns: db_columns,
+                  coltypes: db_coltypes,
+                  colmodifiers: db_modifiers
+                }} <- {signal, db_table_schema} do
+            deletion = checkDeletion(db_table_schema, new_table_schema)
+            IO.puts("\n result from checkDeletion: ")
+            IO.inspect(deletion)
 
-          IO.puts("\ndel Cmds:")
-          IO.inspect(del_cmds)
+            kept_columns = Keyword.get_values(deletion, :keep)
+            del_cmds = Keyword.get_values(deletion, :drop)
 
-          case kept_columns do
-            [] ->
-              getDropAndCreateCmds(new_table_schema)
+            IO.puts("kept columns")
+            IO.inspect(kept_columns)
+
+            db_table_schema = filterSchema(db_table_schema, kept_columns)
+            IO.inspect(db_table_schema)
+
+            IO.puts("\ndel Cmds:")
+            IO.inspect(del_cmds)
+
+            case kept_columns do
+              [] ->
+                getDropAndCreateCmds(new_table_schema)
+
               # IO.inspect(dcsql)
               # IO.inspect(executeCmds(dcsql, connPID))
 
-            _ ->
-              creation = checkColumnCreation(db_table_schema, new_table_schema)
-              IO.inspect(creation)
+              _ ->
+                creation = checkColumnCreation(db_table_schema, new_table_schema)
+                IO.inspect(creation)
 
-              add_cmds = Keyword.get_values(creation, :create)
+                add_cmds = Keyword.get_values(creation, :create)
 
-              del_cmds ++ add_cmds
-              # IO.inspect(cmd)
+                del_cmds ++ add_cmds
+                # IO.inspect(cmd)
 
-              # ans = executeCmds(cmd, connPID)
-              # IO.inspect(ans)
-          end
-        else
-          {:error, tablename, reason} ->
-            handleError(tablename, reason)
+                # ans = executeCmds(cmd, connPID)
+                # IO.inspect(ans)
+            end
+          else
+            {:error, tablename, reason} ->
+              handleError(tablename, reason)
 
-          {:table_not_found, message} ->
-            IO.inspect(message)
-            getCreateTableCmds(new_table_schema)
+            {:table_not_found, message} ->
+              IO.inspect(message)
+              getCreateTableCmds(new_table_schema)
+
             # IO.inspect(ccmd)
             # IO.inspect(ccmd |> executeCmds(connPID))
 
-          _ ->
-            IO.inspect({signal, db_table_schema})
+            _ ->
+              IO.inspect({signal, db_table_schema})
+          end
+        else
+          _ -> {:error, "Parsed file is corrupted (unformatted)."}
         end
-      else
-        _ -> {:error, "Parsed file is corrupted (unformatted)."}
-      end
-    end)
+      end)
 
     List.flatten(commands)
 
@@ -297,14 +306,12 @@ defmodule SchemaParser do
     end
   end
 
-
   defp getDropAndCreateCmds(new_table_schema) do
     tablename = new_table_schema.tablename
     schema = new_table_schema.schema
 
     ["drop table [#{schema}].[#{tablename}]", getCreateTableCmds(new_table_schema)]
   end
-
 
   defp getCreateTableCmds(new_table_schema) do
     ns = Enum.into(new_table_schema, %{})
@@ -503,10 +510,12 @@ defmodule SchemaParser do
 
           typemod =
             cond do
-              col_ml != nil -> s_ml = Integer.to_string(col_ml)
+              col_ml != nil ->
+                s_ml = Integer.to_string(col_ml)
                 "(#{s_ml})"
 
-              col_np != nil -> s_np = Integer.to_string(col_np)
+              col_np != nil ->
+                s_np = Integer.to_string(col_np)
                 "(#{s_np})"
 
               true ->
@@ -540,7 +549,6 @@ defmodule SchemaParser do
       end
     end)
   end
-
 
   defp getTabledataSQL(tableschema, tablename, connPID) do
     IO.puts(tablename)
@@ -616,8 +624,9 @@ defmodule SchemaParser do
         odbc_driver: "ODBC Driver 17 for SQL Server",
         trusted_connection: "yes"
       )
-      {:ok, read} = File.read("sqlcmds_bin.txt")
-      sqlCmds = :erlang.binary_to_term(read)
+
+    {:ok, read} = File.read("sqlcmds_bin.temp")
+    sqlCmds = :erlang.binary_to_term(read)
 
     Enum.map(sqlCmds, fn cmd ->
       query(connPID, cmd)
